@@ -131,7 +131,7 @@ const handleForgotPassword = async (req, res) => {
         const result = await forgotPassword(req.body.email);
 
         if (result) {
-            const clientUrl = process.env.CLIENT_URL || "http://localhost:5174";
+            const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
             const resetUrl = `${clientUrl}/reset-password/${result.rawToken}`;
             await sendPasswordResetEmail({ to: result.email, name: result.name, resetUrl });
         }
