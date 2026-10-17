@@ -13,8 +13,26 @@ dotenv.config();
 const app = express();
 
 // Middleware
+// Allowed frontends: local dev + deployed site(s). Extra origins can be added via
+// CORS_ORIGINS (comma-separated) or CLIENT_URL in the environment, without code changes.
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:3000",
+  "https://port-hrms.netlify.app",
+  process.env.CLIENT_URL,
+  ...(process.env.CORS_ORIGINS || "").split(","),
+]
+  .map((o) => (o || "").trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
 app.use(cors({
-  origin: [ "http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+  origin: (origin, callback) => {
+    // Allow non-browser requests (curl, server-to-server) which send no Origin
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(null, false);
+  },
+  credentials: true,
 }));
 app.use(loggingMiddleware);
 
