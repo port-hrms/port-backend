@@ -1,5 +1,81 @@
 const { jsPDF } = require("jspdf");
-const { signatureBase64, templateBase64 } = require("./assets");
+const { signatureBase64 } = require("./assets");
+
+const NAVY = [11, 59, 94];
+const OCEAN = [30, 136, 200];
+const SLATE = [71, 85, 105];
+
+// Letterhead drawn in vector (replaces the old image template). Uses company settings only.
+const drawLetterhead = (doc, pw, ph, companyInfo = {}) => {
+  const name = companyInfo.name || "Dreamonix Solution Pvt. Ltd.";
+
+  // Top accent bands
+  doc.setFillColor(...NAVY);
+  doc.rect(0, 0, pw, 4, "F");
+  doc.setFillColor(...OCEAN);
+  doc.triangle(pw - 70, 0, pw, 0, pw, 26, "F");
+  doc.setFillColor(...NAVY);
+  doc.triangle(pw - 38, 0, pw, 0, pw, 14, "F");
+
+  // Logo (if uploaded in settings) + company name
+  let textX = 18;
+  if (companyInfo.logo) {
+    try {
+      doc.addImage(companyInfo.logo, 14, 11, 16, 16);
+      textX = 34;
+    } catch {
+      // ignore unsupported image data
+    }
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(17);
+  doc.setTextColor(...NAVY);
+  doc.text(name, textX, 19);
+  if (companyInfo.address) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...SLATE);
+    doc.text(companyInfo.address.replace(/,?\s*\n/g, ", "), textX, 25);
+  }
+
+  // Date / number labels (values are written by the caller)
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(0, 0, 0);
+  doc.text("DATE-", 147, 35.2);
+  doc.text("LETTER NO:", 147, 44.2);
+
+  // Title
+  doc.setFontSize(15);
+  doc.setTextColor(...OCEAN);
+  doc.text("QUOTATION", pw / 2, 55, { align: "center" });
+  doc.setDrawColor(...OCEAN);
+  doc.setLineWidth(0.4);
+  doc.line(pw / 2 - 18, 57.5, pw / 2 + 18, 57.5);
+
+  // Footer: contact details on the right, bottom band
+  const footer = [
+    companyInfo.gstin && `GSTIN: ${companyInfo.gstin}`,
+    companyInfo.contact && `Phone: ${companyInfo.contact}`,
+    companyInfo.email && `Email: ${companyInfo.email}`,
+  ].filter(Boolean);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...SLATE);
+  footer.forEach((line, i) => doc.text(line, pw - 18, 266 + i * 5, { align: "right" }));
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(0, 0, 0);
+  doc.text("Thanks & Regards,", 18, 266);
+  doc.text(name, 18, 271);
+
+  doc.setFillColor(...OCEAN);
+  doc.triangle(0, ph, 0, ph - 18, 60, ph, "F");
+  doc.setFillColor(...NAVY);
+  doc.rect(0, ph - 4, pw, 4, "F");
+  doc.setTextColor(0, 0, 0);
+};
 
 const generateQuotationPDF = (quotation, companyInfo) => {
   const client = quotation.clientId || {};
@@ -10,24 +86,12 @@ const generateQuotationPDF = (quotation, companyInfo) => {
   const pw = doc.internal.pageSize.getWidth();
   const ph = doc.internal.pageSize.getHeight();
 
-  // Register page background event for multi-page layouts
-  doc.internal.events.subscribe("addPage", () => {
-    if (templateBase64) {
-      doc.addImage(templateBase64, "JPEG", 0, 0, pw, ph);
-    }
-  });
-
-  // Draw background template on the first page
-  if (templateBase64) {
-    doc.addImage(templateBase64, "JPEG", 0, 0, pw, ph);
-  }
+  // Letterhead on every page
+  doc.internal.events.subscribe("addPage", () => drawLetterhead(doc, pw, ph, companyInfo || {}));
+  drawLetterhead(doc, pw, ph, companyInfo || {});
 
   // 1. Render Quotation Date and Number
   const quotationDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString("en-IN") : new Date().toLocaleDateString("en-IN");
-
-  // Mask pre-baked 'BRS/016' on the template image
-  doc.setFillColor(255, 255, 255);
-  doc.rect(174, 42, 20, 6, "F");
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);

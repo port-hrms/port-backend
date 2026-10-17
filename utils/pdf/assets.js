@@ -1,17 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 
-let logoBase64 = null;
+// No bundled logo: PDFs use the logo uploaded in company settings, or a text header.
+const logoBase64 = null;
 let signatureBase64 = null;
-
-try {
-  const logoPath = path.join(__dirname, "../../assets/logo.png");
-  if (fs.existsSync(logoPath)) {
-    logoBase64 = `data:image/png;base64,${fs.readFileSync(logoPath).toString("base64")}`;
-  }
-} catch (e) {
-  console.error("Failed to load logo image:", e);
-}
 
 try {
   const sigPath = path.join(__dirname, "../../assets/signature.png");
@@ -20,16 +12,6 @@ try {
   }
 } catch (e) {
   console.error("Failed to load signature image:", e);
-}
-
-let templateBase64 = null;
-try {
-  const templatePath = path.join(__dirname, "../../assets/template.jpg");
-  if (fs.existsSync(templatePath)) {
-    templateBase64 = `data:image/jpeg;base64,${fs.readFileSync(templatePath).toString("base64")}`;
-  }
-} catch (e) {
-  console.error("Failed to load template image:", e);
 }
 
 const COMPANY = {
@@ -72,7 +54,6 @@ function drawBorder(doc, x, y, w, h) {
 module.exports = {
   logoBase64,
   signatureBase64,
-  templateBase64,
   COMPANY,
   numberToWords,
   drawBorder,
