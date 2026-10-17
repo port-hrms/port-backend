@@ -2,16 +2,16 @@ const mongoose = require("mongoose");
 
 const companySettingSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, default: "Briskode Technology Pvt. Ltd." },
+    name: { type: String, required: true, default: "Dreamonix Solution Pvt. Ltd." },
     address: { type: String, required: true, default: "Plot No-222, District Center,\nBhubaneswar - 751001" },
     gstin: { type: String, required: true, default: "21AAMCB1486G1ZT" },
     state: { type: String, required: true, default: "Odisha" },
     stateCode: { type: String, default: "21" },
     contact: { type: String, required: true, default: "9348354248, 8117856483" },
-    email: { type: String, default: "briskodetechnology@gmail.com" },
-    hrEmail: { type: String, default: "hr@briskodetechnology.com" },
+    email: { type: String, default: "dreamonixsolution@gmail.com" },
+    hrEmail: { type: String, default: "hr@dreamonixsolution.com" },
     bank: {
-      holder: { type: String, default: "Briskode Technology Pvt. Ltd." },
+      holder: { type: String, default: "Dreamonix Solution Pvt. Ltd." },
       bank: { type: String, default: "HDFC Bank" },
       account: { type: String, default: "50200087663786" },
       branch: { type: String, default: "Infocity" },

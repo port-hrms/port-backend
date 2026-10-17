@@ -11,8 +11,8 @@ const seedCompanyDetails = async () => {
         {
           $set: {
             contact: "9348354248, 8117856483",
-            email: "briskodetechnology@gmail.com",
-            hrEmail: "hr@briskodetechnology.com",
+            email: "dreamonixsolution@gmail.com",
+            hrEmail: "hr@dreamonixsolution.com",
           }
         }
       );
@@ -42,16 +42,16 @@ const seedCompanyDetails = async () => {
     }
 
     await CompanySetting.create({
-      name: "Briskode Technology Pvt. Ltd.",
+      name: "Dreamonix Solution Pvt. Ltd.",
       address: "Plot No-222, District Center,\nBhubaneswar - 751001",
       gstin: "21AAMCB1486G1ZT",
       state: "Odisha",
       stateCode: "21",
       contact: "9348354248, 8117856483",
-      email: "briskodetechnology@gmail.com",
-      hrEmail: "hr@briskodetechnology.com",
+      email: "dreamonixsolution@gmail.com",
+      hrEmail: "hr@dreamonixsolution.com",
       bank: {
-        holder: "Briskode Technology Pvt. Ltd.",
+        holder: "Dreamonix Solution Pvt. Ltd.",
         bank: "HDFC Bank",
         account: "50200087663786",
         branch: "Infocity",

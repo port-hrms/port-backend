@@ -42,7 +42,7 @@ const generateQuotationPDF = (quotation, companyInfo) => {
   doc.text("Dear Sir/Madam,", 18, y);
   y += 6;
 
-  const companyName = (companyInfo && companyInfo.name) || "Briskode Technology Pvt Ltd";
+  const companyName = (companyInfo && companyInfo.name) || "Dreamonix Solution Pvt Ltd";
   doc.text(`Greetings from ${companyName}.`, 18, y);
   y += 9;
 
@@ -133,7 +133,7 @@ const generateQuotationPDF = (quotation, companyInfo) => {
   y += 6;
 
   doc.setFont("helvetica", "normal");
-  const holder = (companyInfo && companyInfo.bank && companyInfo.bank.holder) || "BRISKODE TECHNOLOGY PVT LTD";
+  const holder = (companyInfo && companyInfo.bank && companyInfo.bank.holder) || "DREAMONIX SOLUTION PVT LTD";
   const account = (companyInfo && companyInfo.bank && companyInfo.bank.account) || "50200087663786";
   const ifsc = (companyInfo && companyInfo.bank && companyInfo.bank.ifsc) || "HDFC0004013";
 
