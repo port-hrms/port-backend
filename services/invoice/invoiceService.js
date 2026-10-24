@@ -1,6 +1,7 @@
 const Invoice = require("../../models/Invoice");
 const Quotation = require("../../models/Quotation");
 const Client = require("../../models/Client");
+const { getInvoiceMoneyStats } = require("../../utils/invoiceStats");
 
 const getAll = async (query = {}) => {
   const filter = { is_deleted: false };
@@ -105,41 +106,43 @@ const remove = async (id) => {
   return invoice;
 };
 
-const updatePaymentStatus = async (id, { paymentStatus, transactionId, paymentDate }) => {
-  const updateData = { paymentStatus };
-  if (transactionId) updateData.transactionId = transactionId;
-  if (paymentDate) updateData.paymentDate = paymentDate;
-
-  const invoice = await Invoice.findOneAndUpdate(
-    { _id: id, is_deleted: false },
-    updateData,
-    { new: true }
-  );
+const updatePaymentStatus = async (id, { paymentStatus, transactionId, paymentDate, amountPaid }) => {
+  const invoice = await Invoice.findOne({ _id: id, is_deleted: false });
   if (!invoice) throw Object.assign(new Error("Invoice not found"), { statusCode: 404 });
-  return invoice;
+
+  if (amountPaid !== undefined) {
+    const paid = Number(amountPaid);
+    if (!Number.isFinite(paid) || paid < 0 || paid > invoice.amount) {
+      throw Object.assign(new Error("Amount paid must be between 0 and the invoice amount"), { statusCode: 400 });
+    }
+    invoice.amountPaid = paid;
+  }
+  if (paymentStatus) invoice.paymentStatus = paymentStatus;
+  if (invoice.paymentStatus === "Paid") invoice.amountPaid = invoice.amount;
+  if (transactionId) invoice.transactionId = transactionId;
+  if (paymentDate) invoice.paymentDate = paymentDate;
+
+  return invoice.save();
 };
 
 const getStats = async () => {
   const filter = { is_deleted: false };
-  const total = await Invoice.countDocuments(filter);
-  const paid = await Invoice.countDocuments({ ...filter, paymentStatus: "Paid" });
-  const unpaid = await Invoice.countDocuments({ ...filter, paymentStatus: "Unpaid" });
-  const partial = await Invoice.countDocuments({ ...filter, paymentStatus: "Partial" });
-  const overdue = await Invoice.countDocuments({ ...filter, paymentStatus: "Overdue" });
-
-  const revenueResult = await Invoice.aggregate([
-    { $match: { is_deleted: false, paymentStatus: "Paid" } },
-    { $group: { _id: null, total: { $sum: "$amount" } } },
+  const [total, paid, partial, money] = await Promise.all([
+    Invoice.countDocuments(filter),
+    Invoice.countDocuments({ ...filter, paymentStatus: "Paid" }),
+    Invoice.countDocuments({ ...filter, paymentStatus: "Partial" }),
+    getInvoiceMoneyStats(),
   ]);
-  const revenueGenerated = revenueResult.length > 0 ? revenueResult[0].total : 0;
 
-  const pendingAmountResult = await Invoice.aggregate([
-    { $match: { is_deleted: false, paymentStatus: { $in: ["Unpaid", "Partial", "Overdue"] } } },
-    { $group: { _id: null, total: { $sum: "$amount" } } },
-  ]);
-  const pendingPayments = pendingAmountResult.length > 0 ? pendingAmountResult[0].total : 0;
-
-  return { total, paid, unpaid, partial, overdue, revenueGenerated, pendingPayments };
+  return {
+    total,
+    paid,
+    unpaid: money.unpaidCount,
+    partial,
+    overdue: money.overdueCount,
+    revenueGenerated: money.revenueGenerated,
+    pendingPayments: money.pendingPayments,
+  };
 };
 
 module.exports = { getAll, getById, create, createFromQuotation, update, remove, updatePaymentStatus, getStats };

@@ -5,10 +5,13 @@ const dashboardService = require("../services/dashboardService");
 
 const resolveStatusCode = (error, fallback = 500) => error?.statusCode || fallback;
 
-// GET /api/dashboard/stats
+// GET /api/dashboard/stats[?sections=leaves,attendance]
 const getStats = async (req, res) => {
     try {
-        const data = await dashboardService.getDashboardStats();
+        const sections = typeof req.query.sections === "string" && req.query.sections.trim()
+            ? req.query.sections.split(",").map((name) => name.trim()).filter(Boolean)
+            : undefined;
+        const data = await dashboardService.getDashboardStats(sections);
         return res.status(200).json({
             success: true,
             data,
@@ -17,8 +20,7 @@ const getStats = async (req, res) => {
         console.error("Dashboard stats error:", error);
         return res.status(resolveStatusCode(error, 500)).json({
             success: false,
-            message: "Failed to fetch dashboard stats",
-            error: error.message,
+            message: error.statusCode ? error.message : "Failed to fetch dashboard stats",
         });
     }
 };
@@ -35,8 +37,7 @@ const getEmployeeStats = async (req, res) => {
         console.error("Employee dashboard stats error:", error);
         return res.status(resolveStatusCode(error, 500)).json({
             success: false,
-            message: "Failed to fetch employee dashboard stats",
-            error: error.message,
+            message: error.statusCode ? error.message : "Failed to fetch employee dashboard stats",
         });
     }
 };

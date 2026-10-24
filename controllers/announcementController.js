@@ -1,14 +1,22 @@
 const Announcement = require("../models/Announcement");
 
 // @desc    Get all announcements (sorted by pinned first, then newest)
-// @route   GET /api/announcements
+// @route   GET /api/announcements[?limit=9]
 // @access  Private (All Employees/Admins)
+// With ?limit (dashboard previews) only that many posts are returned, without comments.
 exports.getAnnouncements = async (req, res) => {
     try {
-        const announcements = await Announcement.find()
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 0, 0), 50);
+        const query = Announcement.find()
             .populate("author", "name role avatar")
-            .populate("comments.user", "name role avatar")
             .sort({ isPinned: -1, createdAt: -1 });
+
+        if (limit) {
+            query.select("-comments").limit(limit);
+        } else {
+            query.populate("comments.user", "name role avatar");
+        }
+        const announcements = await query;
 
         res.status(200).json({ success: true, announcements });
     } catch (error) {

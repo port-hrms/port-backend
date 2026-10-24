@@ -17,6 +17,7 @@ const invoiceSchema = new mongoose.Schema(
     tax: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     amount: { type: Number, default: 0 },
+    amountPaid: { type: Number, default: 0, min: 0 }, // received so far — used for "Partial"
     dueDate: { type: Date, required: true },
     paymentStatus: {
       type: String,
