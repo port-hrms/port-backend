@@ -68,4 +68,35 @@ const sendPasswordResetEmail = async ({ to, name, resetUrl }) => {
   return transporter.sendMail(mailOptions);
 };
 
-module.exports = { sendQuotationEmail, sendInvoiceEmail, sendPasswordResetEmail };
+const sendEmployeeInviteEmail = async ({ to, name, setupUrl, expiresInDays = 3 }) => {
+  const company = process.env.COMPANY_NAME || "HRMS";
+  const mailOptions = {
+    from: `"${company}" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: `You're invited to ${company} HRMS — set your password`,
+    html: `
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
+        <div style="background: linear-gradient(135deg, #0b3b5e 0%, #1e88c8 100%); padding: 32px 40px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700;">Welcome aboard</h1>
+          <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 14px;">${company}</p>
+        </div>
+        <div style="padding: 36px 40px;">
+          <p style="color: #0a2c47; font-size: 16px; margin: 0 0 8px;">Hi <strong>${name || "there"}</strong>,</p>
+          <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
+            An HRMS account has been created for you. Set your password to sign in and see your attendance, leaves, payslips and more.
+          </p>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${setupUrl}" style="display: inline-block; background: #0b3b5e; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 10px; font-size: 15px; font-weight: 600;">Set my password &rarr;</a>
+          </div>
+          <p style="color: #64748b; font-size: 13px; margin: 0;">Your sign-in email is <strong>${to}</strong>. This link expires in ${expiresInDays} days — ask HR for a new one if it runs out.</p>
+        </div>
+        <div style="background: #f8fafc; padding: 20px 40px; text-align: center; border-top: 1px solid #e2e8f0;">
+          <p style="color: #94a3b8; font-size: 12px; margin: 0;">&copy; ${new Date().getFullYear()} ${company} &mdash; This is an automated email, please do not reply.</p>
+        </div>
+      </div>
+    `,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+module.exports = { sendQuotationEmail, sendInvoiceEmail, sendPasswordResetEmail, sendEmployeeInviteEmail };

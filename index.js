@@ -41,7 +41,12 @@ const path = require("path");
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// Serve static files from uploads directory
+// Serve static files from uploads directory.
+// Private folders (employee KYC documents, applicant resumes) are never served directly —
+// they are only available through authenticated API routes.
+app.use(["/uploads/employee-docs", "/uploads/resumes"], (req, res) => {
+  res.status(404).json({ success: false, message: "Not found" });
+});
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 

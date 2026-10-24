@@ -1,6 +1,7 @@
 // @ts-nocheck
 
 
+const { hasAdminAccess, ownEmployeeId } = require("../../utils/accessHelpers");
 const attendanceService = require("../../services/attendance/attendanceService");
 const { sendSuccess, sendError, sendBadRequest } = require("../../utils/responseHandler");
 
@@ -65,6 +66,13 @@ const deleteAttendance = async (req, res) => {
 
 const getEmployeeMonthlyReport = async (req, res) => {
   try {
+    // Employees may only read their own attendance; admins/HR staff can read anyone's
+    if (!(await hasAdminAccess(req.user))) {
+      const own = ownEmployeeId(req.user);
+      if (!own || own !== String(req.params.employeeId)) {
+        return res.status(403).json({ success: false, message: "You can only view your own attendance" });
+      }
+    }
     const report = await attendanceService.getEmployeeMonthlyReport(
       req.params.employeeId,
       req.query

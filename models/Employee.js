@@ -51,7 +51,7 @@ const employeeSchema = new mongoose.Schema(
         department: {
             type: String,
             required: [true, "Department is required"],
-            enum: ["Engineering", "Marketing", "HR", "Finance", "Sales", "Operations", "Design"],
+            enum: ["Engineering", "Marketing", "HR", "Finance", "Sales", "Operations", "Design", "Freelancing"],
         },
         designation: {
             type: String,
@@ -82,17 +82,6 @@ const employeeSchema = new mongoose.Schema(
             type: Number,
             required: [true, "Salary is required"],
             min: [0, "Salary cannot be negative"],
-        },
-
-        // ─── Auth Info (for Phase 5 - Login) ──────────────────────
-        password: {
-            type: String,
-            // Will be filled in Phase 5 when we add authentication
-        },
-        role: {
-            type: String,
-            enum: ["admin", "hr", "employee"],
-            default: "employee",
         },
 
         // ─── Profile Picture ───────────────────────────────────────
@@ -135,18 +124,17 @@ const employeeSchema = new mongoose.Schema(
 );
 
 // ─── Auto-generate Employee ID before saving ───────────────────
-// Finds the highest existing EMP### number and increments it
+// Finds the highest existing EMP### number (compared as a number, so EMP1000 > EMP999)
+// and increments it. Removed employees are included, so IDs are never reused.
 employeeSchema.pre("save", async function () {
     if (!this.employeeId) {
-        const lastEmployee = await mongoose.model("Employee")
-            .findOne({}, { employeeId: 1 })
-            .sort({ employeeId: -1 });
-
-        let nextNum = 1;
-        if (lastEmployee?.employeeId) {
-            const match = lastEmployee.employeeId.match(/EMP(\d+)/);
-            if (match) nextNum = parseInt(match[1], 10) + 1;
-        }
+        const [last] = await mongoose.model("Employee").aggregate([
+            { $match: { employeeId: { $regex: /^EMP\d+$/ } } },
+            { $project: { num: { $toInt: { $substrCP: ["$employeeId", 3, 12] } } } },
+            { $sort: { num: -1 } },
+            { $limit: 1 },
+        ]);
+        const nextNum = (last?.num || 0) + 1;
         this.employeeId = `EMP${String(nextNum).padStart(3, "0")}`;
     }
 });

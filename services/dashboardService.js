@@ -1,6 +1,7 @@
 // @ts-nocheck
 
 const Employee = require("../models/Employee");
+const { NOT_DELETED } = require("../utils/employeeHelpers");
 const Attendance = require("../models/Attendance");
 const Payroll = require("../models/Payroll");
 const Performance = require("../models/Performance");
@@ -34,13 +35,14 @@ const getDashboardStats = async () => {
   const currentYear = new Date().getFullYear();
 
   const [totalEmployees, activeEmployees, onLeaveEmployees, inactiveEmployees] = await Promise.all([
-    Employee.countDocuments(),
-    Employee.countDocuments({ status: "Active" }),
-    Employee.countDocuments({ status: "On Leave" }),
-    Employee.countDocuments({ status: "Inactive" }),
+    Employee.countDocuments(NOT_DELETED),
+    Employee.countDocuments({ ...NOT_DELETED, status: "Active" }),
+    Employee.countDocuments({ ...NOT_DELETED, status: "On Leave" }),
+    Employee.countDocuments({ ...NOT_DELETED, status: "Inactive" }),
   ]);
 
   const departmentStats = await Employee.aggregate([
+    { $match: NOT_DELETED },
     { $group: { _id: "$department", count: { $sum: 1 } } },
     { $sort: { count: -1 } },
   ]);
@@ -60,7 +62,7 @@ const getDashboardStats = async () => {
     : 0;
   const gradeDistribution = createGradeDistribution(performanceRecords);
 
-  const recentEmployees = await Employee.find()
+  const recentEmployees = await Employee.find(NOT_DELETED)
     .sort({ createdAt: -1 })
     .limit(5)
     .select("firstName lastName email department designation employeeId status createdAt");
@@ -78,20 +80,7 @@ const getDashboardStats = async () => {
     .limit(5)
     .select("employee leaveType startDate endDate numberOfDays status createdAt reason managerNotes");
 
-  // ─── Birthday Today ──────────────────────────────────────────
-  const todayMonth = new Date().getMonth() + 1;
-  const todayDate = new Date().getDate();
-
-  const birthdayEmployees = await Employee.find({
-    dateOfBirth: { $exists: true, $ne: null },
-    status: "Active",
-    $expr: {
-      $and: [
-        { $eq: [{ $month: "$dateOfBirth" }, todayMonth] },
-        { $eq: [{ $dayOfMonth: "$dateOfBirth" }, todayDate] },
-      ],
-    },
-  }).select("firstName lastName department designation avatar employeeId dateOfBirth");
+  const birthdayEmployees = await findTodaysBirthdays();
 
   return {
     employees: {
@@ -123,6 +112,39 @@ const getDashboardStats = async () => {
     recentEmployees,
     birthdayEmployees,
     billing: await getBillingStats(),
+  };
+};
+
+// Active employees whose birthday is today
+const findTodaysBirthdays = () => {
+  const now = new Date();
+  return Employee.find({
+    ...NOT_DELETED,
+    dateOfBirth: { $exists: true, $ne: null },
+    status: "Active",
+    $expr: {
+      $and: [
+        { $eq: [{ $month: "$dateOfBirth" }, now.getMonth() + 1] },
+        { $eq: [{ $dayOfMonth: "$dateOfBirth" }, now.getDate()] },
+      ],
+    },
+  }).select("firstName lastName department designation avatar employeeId dateOfBirth");
+};
+
+// Employee dashboard extras: today's birthdays, without exposing anyone's birth date
+const getEmployeeHighlights = async () => {
+  const thisYear = new Date().getFullYear();
+  const birthdays = await findTodaysBirthdays();
+  return {
+    birthdayEmployees: birthdays.map((e) => ({
+      _id: e._id,
+      firstName: e.firstName,
+      lastName: e.lastName,
+      department: e.department,
+      designation: e.designation,
+      avatar: e.avatar,
+      age: thisYear - new Date(e.dateOfBirth).getFullYear(),
+    })),
   };
 };
 
@@ -205,4 +227,5 @@ const getBillingStats = async () => {
 module.exports = {
   getDashboardStats,
   getEmployeeDashboardStats,
+  getEmployeeHighlights,
 };

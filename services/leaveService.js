@@ -180,13 +180,18 @@ const updateLeave = async (leaveId, { status, managerNotes }, approvedBy) => {
   return leave;
 };
 
-const deleteLeave = async (leaveId) => {
-  const leave = await Leave.findByIdAndDelete(leaveId);
+// restrictToEmployee: when set (employee users), only their own Pending request can be deleted
+const deleteLeave = async (leaveId, restrictToEmployee = null) => {
+  const leave = await Leave.findById(leaveId);
 
-  if (!leave) {
+  if (!leave || (restrictToEmployee && String(leave.employee) !== String(restrictToEmployee))) {
     throw withStatus("Leave request not found", 404);
   }
+  if (restrictToEmployee && leave.status !== "Pending") {
+    throw withStatus("Only pending requests can be withdrawn", 400);
+  }
 
+  await leave.deleteOne();
   return true;
 };
 

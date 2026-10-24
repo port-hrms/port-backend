@@ -13,37 +13,35 @@ const validateCreateEmployeeInput = (req, res, next) => {
     createLogin,
     loginPassword,
     aadharNumber,
-    bankName,
-    accountNumber,
-    ifscCode,
     panNumber,
   } = req.body;
 
-  if (
-    !firstName || !lastName || !email || !phone || !department || !designation || !salary || !joiningDate ||
-    !aadharNumber || !bankName || !accountNumber || !ifscCode || !panNumber
-  ) {
+  // Aadhaar / bank / PAN are optional at onboarding (KYC can be completed later),
+  // but must be valid when provided. Bank details are required before a bank-transfer payout.
+  if (!firstName || !lastName || !email || !phone || !department || !designation || !salary || !joiningDate) {
     return res.status(400).json({
       success: false,
-      message: "Please provide all required fields, including Aadhaar and bank details",
+      message: "Please provide all required fields",
     });
   }
 
-  if (!/^\d{12}$/.test(aadharNumber)) {
+  if (aadharNumber && !/^\d{12}$/.test(aadharNumber)) {
     return res.status(400).json({
       success: false,
       message: "Aadhaar number must be exactly 12 digits",
     });
   }
 
-  if (!/^[A-Za-z]{5}[0-9]{4}[A-Za-z]{1}$/.test(panNumber)) {
+  if (panNumber && !/^[A-Za-z]{5}[0-9]{4}[A-Za-z]{1}$/.test(panNumber)) {
     return res.status(400).json({
       success: false,
       message: "Invalid PAN number format",
     });
   }
 
-  if (createLogin && (!loginPassword || loginPassword.length < 6)) {
+  const wantsLogin = createLogin === true || createLogin === "true";
+  const usesInvite = req.body.loginMode !== "password";
+  if (wantsLogin && !usesInvite && (!loginPassword || loginPassword.length < 6)) {
     return res.status(400).json({
       success: false,
       message: "Login password must be at least 6 characters",

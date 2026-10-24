@@ -41,4 +41,15 @@ const getEmployeeStats = async (req, res) => {
     }
 };
 
-module.exports = { getStats, getEmployeeStats };
+// Today's birthdays for the employee dashboard
+const getEmployeeHighlights = async (req, res) => {
+    try {
+        const data = await dashboardService.getEmployeeHighlights();
+        return res.status(200).json({ success: true, data });
+    } catch (error) {
+        console.error("Employee highlights error:", error);
+        return res.status(500).json({ success: false, message: "Failed to load dashboard highlights" });
+    }
+};
+
+module.exports = { getStats, getEmployeeStats, getEmployeeHighlights };

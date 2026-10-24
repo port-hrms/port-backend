@@ -87,7 +87,7 @@ const updatePayroll = async (req, res) => {
   } catch (error) {
     return res.status(resolveStatusCode(error, 400)).json({
       success: false,
-      message: "Error updating payroll",
+      message: error.statusCode ? error.message : "Error updating payroll",
       error: error.message,
     });
   }
@@ -104,7 +104,7 @@ const markAsPaid = async (req, res) => {
   } catch (error) {
     return res.status(resolveStatusCode(error, 400)).json({
       success: false,
-      message: "Error marking payroll as paid",
+      message: error.statusCode ? error.message : "Error marking payroll as paid",
       error: error.message,
     });
   }

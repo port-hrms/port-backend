@@ -69,7 +69,8 @@ userSchema.methods.comparePassword = async function (enteredPassword) {
 };
 
 // Generate and store hashed reset token; return raw token for email link
-userSchema.methods.getResetPasswordToken = function () {
+// ttlMinutes: 15 for "forgot password", longer for new-employee invites
+userSchema.methods.getResetPasswordToken = function (ttlMinutes = 15) {
     const rawToken = crypto.randomBytes(32).toString("hex");
 
     // Store SHA-256 hash in DB — never store raw token
@@ -78,8 +79,7 @@ userSchema.methods.getResetPasswordToken = function () {
         .update(rawToken)
         .digest("hex");
 
-    // Token valid for 15 minutes
-    this.resetPasswordExpiry = new Date(Date.now() + 15 * 60 * 1000);
+    this.resetPasswordExpiry = new Date(Date.now() + ttlMinutes * 60 * 1000);
 
     return rawToken;
 };
