@@ -37,6 +37,9 @@ const Job = require("../models/Job");
 const Expense = require("../models/Expense");
 const Income = require("../models/Income");
 const Advance = require("../models/Advance");
+const CompanySetting = require("../models/CompanySetting");
+const { normalizeTime12, resolveCheckInStatus, HALF_DAY_HOURS, isWeeklyOff } = require("../utils/attendanceTime");
+const { calculateHours } = require("../utils/attendanceHelpers");
 
 const DOMAIN = "dreamonix-demo.com";
 const DEMO_PASSWORD = "Demo@123";
@@ -63,13 +66,8 @@ const today = day(todayStr);
 const [Y, M] = todayStr.split("-").map(Number);
 const prevMonth = M === 1 ? { month: 12, year: Y - 1 } : { month: M - 1, year: Y };
 
-const fmt12 = (mins) => {
-    const h24 = Math.floor(mins / 60);
-    const m = mins % 60;
-    const period = h24 >= 12 ? "PM" : "AM";
-    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-    return `${String(h12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${period}`;
-};
+// "9:35 AM" — the exact format real check-ins are stored in
+const fmt12 = (mins) => normalizeTime12(`${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}`);
 
 // ─── Reference data ──────────────────────────────────────────
 const EMPLOYEES = [
@@ -137,6 +135,25 @@ async function clean() {
 }
 
 // ─── Builders ────────────────────────────────────────────────
+// Fake but valid-format KYC (never real numbers). Two employees are left incomplete on purpose.
+const BANKS = [["State Bank of India", "SBIN0001234"], ["ICICI Bank", "ICIC0000123"], ["Axis Bank", "UTIB0000456"], ["Punjab National Bank", "PUNB0012300"]];
+const KYC_INCOMPLETE = new Set([9, 11]);
+const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const fakeKyc = (i, lastName) => {
+    if (KYC_INCOMPLETE.has(i)) return {};
+    const [bankName, ifscCode] = BANKS[i % BANKS.length];
+    return {
+        aadharNumber: `${between(2, 9)}${String(between(0, 99999999999)).padStart(11, "0")}`,
+        bankInfo: {
+            bankName,
+            ifscCode,
+            accountNumber: String(between(10000000000, 99999999999999)),
+            panNumber: `${pick(letters)}${pick(letters)}${pick(letters)}P${lastName[0].toUpperCase()}${String(between(1000, 9999))}${pick(letters)}`,
+            pfUAN: String(between(100000000000, 999999999999)),
+        },
+    };
+};
+
 async function createPeople() {
     const hrTeam = await User.create({
         name: "HR Team",
@@ -157,7 +174,7 @@ async function createPeople() {
             firstName,
             lastName,
             email,
-            phone: `9${between(100000000, 999999999)}`,
+            phone: `98${String(40000000 + i * 1371).padStart(8, "0")}`, // unique per demo employee
             gender,
             dateOfBirth: dob,
             address: pick(["Paradeep, Jagatsinghpur", "Bhubaneswar, Khordha", "Cuttack", "Kujang, Jagatsinghpur"]),
@@ -168,6 +185,7 @@ async function createPeople() {
             salary,
             status: i === 6 ? "On Leave" : "Active",
             isFieldAgent: i === 9,
+            ...fakeKyc(i, lastName),
         });
         await User.create({
             name: `${firstName} ${lastName}`,
@@ -181,53 +199,111 @@ async function createPeople() {
     return { hrTeam, employees };
 }
 
-async function createAttendance(employees) {
+// Attendance that behaves like the real app:
+//  • status from the real shift rules, hours from the real calculation
+//  • leave days only from approved leave requests, WFH only on approved WFH days
+//  • a few missed check-outs, admin-edited records, bulk-marked absents and one deleted record
+async function createAttendance(employees, hrTeam, { leaveDays, wfhDays }) {
+    const settings = await CompanySetting.findOne().select("latitude longitude").lean();
+    const office = settings?.latitude != null ? { lat: Number(settings.latitude), lng: Number(settings.longitude) } : null;
+    const near = (metres) => {
+        if (!office) return { lat: null, lng: null, accuracy: null };
+        const deg = metres / 111320;
+        return { lat: office.lat + deg * (rand() - 0.5), lng: office.lng + deg * (rand() - 0.5), accuracy: between(6, 25) };
+    };
+    const hr = (action, reason, changes = []) => ({ at: new Date(), by: hrTeam._id, byName: "HR Team", action, reason, changes });
+
     const docs = [];
     const start = `${prevMonth.year}-${String(prevMonth.month).padStart(2, "0")}-01`;
 
     for (const [i, emp] of employees.entries()) {
         for (let d = start; d <= todayStr; d = addDays(d, 1)) {
-            if (day(d).getUTCDay() === 0 || HOLIDAY_SET.has(d)) continue; // Sundays + holidays off
+            if (isWeeklyOff(d) || HOLIDAY_SET.has(d)) continue; // weekly off + holidays
             const isToday = d === todayStr;
+            const key = `${emp._id}|${d}`;
 
-            // Today: employee #6 is on leave, two have not checked in yet
-            if (isToday && (i === 4 || i === 10)) continue;
-            if (isToday && i === 6) {
-                docs.push({ employee: emp._id, date: day(d), status: "On Leave", leaveType: "Casual Leave" });
+            // Approved leave → "On Leave" (as the leave approval would create it)
+            if (leaveDays.has(key)) {
+                docs.push({
+                    employee: emp._id, date: day(d), status: "On Leave", leaveType: leaveDays.get(key),
+                    source: "leave", history: [hr("leave", `${leaveDays.get(key)} approved`)],
+                });
                 continue;
             }
+
+            // Today: two people haven't arrived yet (shows "Not marked")
+            if (isToday && (i === 4 || i === 10)) continue;
 
             const r = rand();
-            let status = "Present";
-            let inMin = between(9 * 60 + 35, 10 * 60 + 18);
-            if (r > 0.97) {
-                docs.push({ employee: emp._id, date: day(d), status: "Absent" });
+            if (!isToday && r > 0.97) {
+                docs.push({
+                    employee: emp._id, date: day(d), status: "Absent", source: "admin",
+                    history: [hr("created", "Bulk-marked absent: no check-in or record for the day", [{ field: "status", from: "", to: "Absent" }])],
+                });
                 continue;
-            } else if (r > 0.94) {
-                docs.push({ employee: emp._id, date: day(d), status: "On Leave", leaveType: pick(["Sick Leave", "Casual Leave"]) });
-                continue;
-            } else if (r > 0.91) {
-                status = "Half Day";
-                inMin = between(13 * 60 + 5, 13 * 60 + 40);
-            } else if (r > 0.83) {
-                status = "Late";
-                inMin = between(10 * 60 + 32, 11 * 60 + 45);
             }
 
-            const outMin = isToday ? null : between(17 * 60 + 25, 18 * 60 + 40);
-            docs.push({
+            // Check-in time; the status comes from the real rules
+            let inMin = between(9 * 60 + 35, 10 * 60 + 25);
+            if (r > 0.92) inMin = between(13 * 60 + 5, 13 * 60 + 40);       // very late → Half Day
+            else if (r > 0.84) inMin = between(10 * 60 + 32, 11 * 60 + 45);  // Late
+            const checkIn = fmt12(inMin);
+            let status = resolveCheckInStatus(checkIn);
+
+            const isWfh = wfhDays.has(key);
+            const outside = !isWfh && rand() > 0.98; // rare check-in from outside the office
+            const record = {
                 employee: emp._id,
                 date: day(d),
-                status,
-                checkIn: fmt12(inMin),
-                checkOut: outMin ? fmt12(outMin) : "",
-                hoursWorked: outMin ? Number(((outMin - inMin) / 60).toFixed(2)) : 0,
-                workMode: rand() > 0.92 ? "WFH" : "Office",
-            });
+                checkIn,
+                checkOut: "",
+                hoursWorked: 0,
+                workMode: isWfh ? "WFH" : "Office",
+                location: isWfh ? { lat: null, lng: null, accuracy: null } : near(outside ? 3000 : 60),
+                source: "self",
+                history: [],
+            };
+
+            const missed = !isToday && rand() > 0.975;
+            if (!isToday && !missed) {
+                const checkOut = fmt12(between(17 * 60 + 25, 18 * 60 + 40));
+                record.checkOut = checkOut;
+                record.hoursWorked = calculateHours(checkIn, checkOut);
+                record.checkOutLocation = isWfh ? { lat: null, lng: null, accuracy: null } : near(60);
+                if (record.hoursWorked > 0 && record.hoursWorked < HALF_DAY_HOURS) status = "Half Day";
+            }
+            if (missed) {
+                record.missedCheckOut = true;
+                record.history.push({ at: new Date(), byName: "System", action: "missed-check-out", reason: "No check-out recorded for the day" });
+            }
+            record.status = status;
+
+            // Occasionally an admin corrected the check-out (shows "Edited · history")
+            if (!isToday && !missed && rand() > 0.985) {
+                const fixedOut = fmt12(between(18 * 60 + 45, 19 * 60 + 15));
+                record.history.push(hr("updated", "Forgot to check out on time — confirmed with team lead", [
+                    { field: "checkOut", from: record.checkOut, to: fixedOut },
+                    { field: "hoursWorked", from: String(record.hoursWorked), to: String(calculateHours(checkIn, fixedOut)) },
+                ]));
+                record.checkOut = fixedOut;
+                record.hoursWorked = calculateHours(checkIn, fixedOut);
+            }
+
+            docs.push(record);
         }
     }
+
+    // One deleted duplicate (visible under "Show deleted", restorable only after removing the live one)
+    const sample = docs.find((x) => x.status === "Present" && x.employee.equals(employees[5]._id));
+    if (sample) {
+        docs.push({
+            ...sample, history: [hr("created", "Marked manually by admin"), hr("deleted", "Duplicate entry created by mistake")],
+            source: "admin", isDeleted: true, deletedAt: new Date(), deletedBy: hrTeam._id, deleteReason: "Duplicate entry created by mistake",
+        });
+    }
+
     await Attendance.insertMany(docs);
-    return docs.length;
+    return docs.filter((x) => !x.isDeleted).length;
 }
 
 async function createLeavesAndWfh(employees, hrTeam) {
@@ -258,6 +334,15 @@ async function createLeavesAndWfh(employees, hrTeam) {
         [0, addDays(todayStr, -8), addDays(todayStr, -8), 1, "Plumber visit at home", "Approved"],
         [9, addDays(todayStr, 5), addDays(todayStr, 5), 1, "Field visit report writing", "Pending"],
     ];
+    // Approved days (skipping weekly offs / holidays) drive the attendance records
+    const leaveDays = new Map();
+    const wfhDays = new Set();
+    const eachWorkingDay = (from, to, fn) => {
+        for (let d = from; d <= to; d = addDays(d, 1)) if (!isWeeklyOff(d) && !HOLIDAY_SET.has(d)) fn(d);
+    };
+    leaves.filter((l) => l[6] === "Approved").forEach(([i, type, from, to]) => eachWorkingDay(from, to, (d) => leaveDays.set(`${employees[i]._id}|${d}`, type)));
+    wfh.filter((w) => w[5] === "Approved").forEach(([i, from, to]) => eachWorkingDay(from, to, (d) => wfhDays.add(`${employees[i]._id}|${d}`)));
+
     await WFHRequest.insertMany(wfh.map(([i, s, e, n, reason, status]) => ({
         employee: employees[i]._id,
         startDate: day(s),
@@ -267,7 +352,7 @@ async function createLeavesAndWfh(employees, hrTeam) {
         status,
         approvedBy: status === "Pending" ? null : hrTeam._id,
     })));
-    return leaves.length + wfh.length;
+    return { count: leaves.length + wfh.length, leaveDays, wfhDays };
 }
 
 async function createPayroll(employees) {
@@ -493,8 +578,8 @@ async function createFinance(employees, hrTeam) {
         }
 
         const { hrTeam, employees } = await createPeople();
-        const attendance = await createAttendance(employees);
         const requests = await createLeavesAndWfh(employees, hrTeam);
+        const attendance = await createAttendance(employees, hrTeam, requests);
         const payroll = await createPayroll(employees);
         const reviews = await createPerformance(employees);
         const tasks = await createTasks(employees, hrTeam);
@@ -505,7 +590,7 @@ async function createFinance(employees, hrTeam) {
         console.table({
             Employees: employees.length,
             "Attendance records": attendance,
-            "Leave + WFH requests": requests,
+            "Leave + WFH requests": requests.count,
             "Payroll records": payroll,
             "Performance reviews": reviews,
             Tasks: tasks,

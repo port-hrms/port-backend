@@ -71,6 +71,14 @@ const deleteAttendance = async (req, res) => {
   }
 };
 
+const getMonthlyRegister = async (req, res) => {
+  try {
+    return sendSuccess(res, await attendanceService.getMonthlyRegister(req.query));
+  } catch (error) {
+    return sendError(res, error.message, error.statusCode || 500, error.message);
+  }
+};
+
 const getDeletedAttendance = async (req, res) => {
   try {
     return sendSuccess(res, await attendanceService.getDeletedAttendance(req.query));
@@ -116,6 +124,7 @@ const getEmployeeMonthlyReport = async (req, res) => {
 };
 
 module.exports = {
+  getMonthlyRegister,
   getDeletedAttendance,
   restoreAttendance,
   getAttendanceHistory,

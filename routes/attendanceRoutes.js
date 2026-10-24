@@ -5,13 +5,16 @@ const {
     getAttendance, getTodaySummary, markAttendance,
     markBulkAttendance, updateAttendance, deleteAttendance,
     getEmployeeMonthlyReport, getPolicy,
-    getDeletedAttendance, restoreAttendance, getAttendanceHistory,
+    getDeletedAttendance, restoreAttendance, getAttendanceHistory, getMonthlyRegister,
 } = require("../controllers/admin/attendanceController");
 const { checkIn, checkOut } = require("../controllers/employee/attendanceController");
 const { protect, authorizeRoles } = require("../middleware/authMiddleware");
 
 // Shift rules (start/end, grace, half-day, weekly off) — any signed-in user
 router.get("/policy", protect, getPolicy);
+// Monthly register: employees × days for ?month=&year=&department=
+router.get("/register", protect, authorizeRoles("admin"), getMonthlyRegister);
+
 // Deleted records for ?date=YYYY-MM-DD, restore, and change history (admin)
 router.get("/deleted", protect, authorizeRoles("admin"), getDeletedAttendance);
 router.put("/:id/restore", protect, authorizeRoles("admin"), restoreAttendance);

@@ -266,7 +266,9 @@ const markBulkAttendance = async ({ date, records, reason }, actor) => {
   if (newRecords.length === 0) {
     return {
       result: [],
-      message: `All ${records.length} employees already have attendance marked for this date`,
+      message: records.length === 1
+        ? "This employee already has attendance marked for this date"
+        : `All ${records.length} employees already have attendance marked for this date`,
     };
   }
 
@@ -277,7 +279,7 @@ const markBulkAttendance = async ({ date, records, reason }, actor) => {
     result,
     message: skipped > 0
       ? `${result.length} marked, ${skipped} already had attendance`
-      : `All ${result.length} employees marked successfully!`,
+      : `${result.length} employee${result.length === 1 ? "" : "s"} marked`,
   };
 };
 
@@ -362,6 +364,104 @@ const getAttendanceHistory = async (id) => {
   return record;
 };
 
+/**
+ * Monthly register: every employee × every day of the month, with off days and totals.
+ * Includes current employees plus anyone (not removed) who has records that month.
+ */
+const getMonthlyRegister = async ({ month, year, department }) => {
+  const [ty, tm] = todayIST().split("-").map(Number);
+  const m = parseInt(month) || tm;
+  const y = parseInt(year) || ty;
+  if (m < 1 || m > 12) fail("Month must be 1–12");
+
+  const range = buildDateRangeForMonth(m, y);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const pad = (n) => String(n).padStart(2, "0");
+  const today = todayIST();
+
+  const [records, holidays] = await Promise.all([
+    Attendance.find({ date: range }).select("employee date status hoursWorked workMode missedCheckOut checkIn checkOut"),
+    Holiday.find({
+      isApproved: { $ne: false },
+      date: { $lte: range.$lte },
+      $or: [{ endDate: null }, { endDate: { $gte: range.$gte } }, { date: { $gte: range.$gte } }],
+    }).select("name date endDate"),
+  ]);
+
+  const holidayOn = (dayStr) => holidays.find((h) => {
+    const from = new Date(h.date).toISOString().slice(0, 10);
+    const to = h.endDate ? new Date(h.endDate).toISOString().slice(0, 10) : from;
+    return dayStr >= from && dayStr <= to;
+  });
+
+  const days = Array.from({ length: daysInMonth }, (_, i) => {
+    const date = `${y}-${pad(m)}-${pad(i + 1)}`;
+    const holiday = holidayOn(date);
+    return {
+      date,
+      day: i + 1,
+      weekday: new Date(`${date}T12:00:00Z`).toLocaleDateString("en-IN", { weekday: "short", timeZone: "UTC" }),
+      isOffDay: isWeeklyOff(date) || Boolean(holiday),
+      offDayReason: isWeeklyOff(date) ? "Weekly off" : holiday ? holiday.name : "",
+      isFuture: date > today,
+    };
+  });
+
+  const recordEmployeeIds = [...new Set(records.map((r) => String(r.employee)))];
+  const empFilter = {
+    is_deleted: { $ne: true },
+    $or: [{ status: { $ne: "Inactive" } }, { _id: { $in: recordEmployeeIds } }],
+  };
+  if (department && department !== "All") empFilter.department = department;
+  const employees = await Employee.find(empFilter)
+    .select("firstName lastName employeeId department designation avatar status")
+    .sort({ firstName: 1, lastName: 1 });
+
+  const byEmployee = new Map();
+  records.forEach((r) => {
+    const key = String(r.employee);
+    if (!byEmployee.has(key)) byEmployee.set(key, {});
+    byEmployee.get(key)[new Date(r.date).toISOString().slice(0, 10)] = {
+      status: r.status,
+      hours: r.hoursWorked || 0,
+      wfh: r.workMode === "WFH",
+      missedCheckOut: isMissedCheckOut(r),
+    };
+  });
+
+  const workingDays = days.filter((d) => !d.isOffDay).length;
+  const rows = employees.map((e) => {
+    const cells = byEmployee.get(String(e._id)) || {};
+    const list = Object.values(cells);
+    const count = (st) => list.filter((c) => c.status === st).length;
+    const expectedSoFar = days.filter((d) => !d.isOffDay && !d.isFuture).length;
+    return {
+      _id: e._id,
+      name: `${e.firstName} ${e.lastName}`.trim(),
+      firstName: e.firstName,
+      lastName: e.lastName,
+      employeeId: e.employeeId,
+      department: e.department,
+      designation: e.designation,
+      avatar: e.avatar,
+      cells,
+      totals: {
+        present: count("Present"),
+        late: count("Late"),
+        halfDay: count("Half Day"),
+        absent: count("Absent"),
+        onLeave: count("On Leave"),
+        wfh: list.filter((c) => c.wfh).length,
+        missedCheckOut: list.filter((c) => c.missedCheckOut).length,
+        notMarked: Math.max(expectedSoFar - days.filter((d) => !d.isOffDay && !d.isFuture && cells[d.date]).length, 0),
+        hours: Math.round(list.reduce((s, c) => s + c.hours, 0) * 10) / 10,
+      },
+    };
+  });
+
+  return { month: m, year: y, workingDays, days, employees: rows };
+};
+
 // Get monthly report for one employee (month/year default to the current IST month)
 const getEmployeeMonthlyReport = async (employeeId, { month, year }) => {
   const [ty, tm] = todayIST().split("-").map(Number);
@@ -391,4 +491,5 @@ module.exports = {
   restoreAttendance,
   getAttendanceHistory,
   getEmployeeMonthlyReport,
+  getMonthlyRegister,
 };
