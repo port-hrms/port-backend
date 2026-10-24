@@ -4,6 +4,9 @@ const Leave = require("../models/Leave");
 const Attendance = require("../models/Attendance");
 const User = require("../models/User");
 const notificationService = require("./notificationService");
+const Holiday = require("../models/Holiday");
+const { buildDateRangeForDay } = require("../utils/attendanceHelpers");
+const { isWeeklyOff } = require("../utils/attendanceTime");
 const {
   buildLeavesFilter,
   getCurrentYearRange,
@@ -11,33 +14,55 @@ const {
   ALLOWED_UPDATE_STATUSES,
 } = require("../utils/leaveHelpers");
 
-// Sync attendance records for all days in a leave range
-const syncLeaveAttendance = async (leave, status) => {
+// Sync attendance with an approved / rejected / cancelled leave.
+// Days are "YYYY-MM-DD" keys stored as UTC midnight (same as check-in).
+// Weekly offs and holidays are skipped, and a day the employee actually
+// worked (has a check-in) is never overwritten.
+const syncLeaveAttendance = async (leave, status, actorId = null) => {
+  const leaveNote = (action) => ({ at: new Date(), by: actorId, byName: "", action: "leave", reason: `${leave.leaveType} ${action}` });
   const employeeId = leave.employee._id || leave.employee;
-  const start = new Date(leave.startDate);
-  const end = new Date(leave.endDate);
+  const startStr = new Date(leave.startDate).toISOString().slice(0, 10);
+  const endStr = new Date(leave.endDate).toISOString().slice(0, 10);
 
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const dayStart = new Date(d);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(d);
-    dayEnd.setHours(23, 59, 59, 999);
+  const holidays = await Holiday.find({
+    isApproved: { $ne: false },
+    date: { $lte: new Date(`${endStr}T23:59:59.999Z`) },
+    $or: [{ endDate: null }, { endDate: { $gte: new Date(`${startStr}T00:00:00.000Z`) } }, { date: { $gte: new Date(`${startStr}T00:00:00.000Z`) } }],
+  }).select("date endDate");
+  const isHoliday = (dayStr) => holidays.some((h) => {
+    const from = new Date(h.date).toISOString().slice(0, 10);
+    const to = h.endDate ? new Date(h.endDate).toISOString().slice(0, 10) : from;
+    return dayStr >= from && dayStr <= to;
+  });
+
+  for (let d = new Date(`${startStr}T00:00:00.000Z`); d.toISOString().slice(0, 10) <= endStr; d.setUTCDate(d.getUTCDate() + 1)) {
+    const dayStr = d.toISOString().slice(0, 10);
+    const dayRange = buildDateRangeForDay(dayStr);
 
     if (status === "Approved") {
-      await Attendance.findOneAndUpdate(
-        { employee: employeeId, date: { $gte: dayStart, $lte: dayEnd } },
-        {
-          $set: { status: "On Leave", leaveType: leave.leaveType, checkIn: null, checkOut: null },
-          $setOnInsert: { employee: employeeId, date: dayStart },
-        },
-        { upsert: true, new: true }
-      );
+      if (isWeeklyOff(dayStr) || isHoliday(dayStr)) continue;
+      const existing = await Attendance.findOne({ employee: employeeId, date: dayRange });
+      if (existing?.checkIn) continue; // they worked that day — keep the real record
+      if (existing) {
+        existing.status = "On Leave";
+        existing.leaveType = leave.leaveType;
+        existing.checkIn = "";
+        existing.checkOut = "";
+        existing.hoursWorked = 0;
+        existing.history.push(leaveNote("approved"));
+        await existing.save();
+      } else {
+        await Attendance.create({
+          employee: employeeId,
+          date: new Date(`${dayStr}T00:00:00.000Z`),
+          status: "On Leave",
+          leaveType: leave.leaveType,
+          source: "leave",
+          history: [leaveNote("approved")],
+        });
+      }
     } else if (status === "Rejected" || status === "Cancelled") {
-      await Attendance.deleteOne({
-        employee: employeeId,
-        date: { $gte: dayStart, $lte: dayEnd },
-        status: "On Leave",
-      });
+      await Attendance.deleteOne({ employee: employeeId, date: dayRange, status: "On Leave" });
     }
   }
 };
@@ -160,7 +185,7 @@ const updateLeave = async (leaveId, { status, managerNotes }, approvedBy) => {
 
   // Sync attendance records when leave is approved or rejected
   if (["Approved", "Rejected", "Cancelled"].includes(status)) {
-    await syncLeaveAttendance(leave, status);
+    await syncLeaveAttendance(leave, status, approvedBy);
   }
 
   if (["Approved", "Rejected"].includes(status)) {

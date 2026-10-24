@@ -108,7 +108,7 @@ async function clean() {
 
     const byEmp = { employee: { $in: empIds } };
     await Promise.all([
-        Attendance.deleteMany(byEmp),
+        Attendance.deleteMany(byEmp).setOptions({ withDeleted: true }),
         Leave.deleteMany(byEmp),
         WFHRequest.deleteMany(byEmp),
         Payroll.deleteMany(byEmp),

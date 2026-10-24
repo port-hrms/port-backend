@@ -1,56 +1,25 @@
 // @ts-nocheck
 // server/utils/attendanceHelpers.js
 
+const { toMinutes, normalizeTime12 } = require("./attendanceTime");
+
+// Hours between two clock times on the same day ("10:05 AM" → "6:30 PM" = 8.42).
+// Uses the clock times only, so the server's own timezone never matters.
+// Returns 0 when either time is missing or check-out is not after check-in.
 const calculateHours = (checkIn, checkOut) => {
-  if (!checkIn || !checkOut) return 0;
+  const inMin = toMinutes(normalizeTime12(checkIn));
+  const outMin = toMinutes(normalizeTime12(checkOut));
+  if (inMin === null || outMin === null || outMin <= inMin) return 0;
+  return parseFloat(((outMin - inMin) / 60).toFixed(2));
+};
 
-  const parseTime = (time) => {
-    // If it's a full ISO string, parse it directly
-    if (typeof time === 'string' && time.includes('T')) {
-      return new Date(time);
-    }
-    
-    // Otherwise, assume it's a time string like "6:42 AM"
-    // and anchor it to today's date for consistent calculation.
-    const today = new Date();
-    const [timePart, period] = String(time).split(' ');
-    const [hours, minutes] = timePart.split(':');
-
-    let h = parseInt(hours, 10);
-    const m = parseInt(minutes, 10);
-
-    if (period && period.toUpperCase() === 'PM' && h < 12) {
-      h += 12;
-    }
-    if (period && period.toUpperCase() === 'AM' && h === 12) {
-      h = 0; // Midnight case
-    }
-    
-    today.setHours(h, m, 0, 0);
-    return today;
-  };
-
-  try {
-    const dateIn = parseTime(checkIn);
-    const dateOut = parseTime(checkOut);
-
-    if (isNaN(dateIn.getTime()) || isNaN(dateOut.getTime())) {
-      return 0;
-    }
-
-    // Handle night shifts where checkout is on the next day
-    if (dateOut < dateIn) {
-      dateOut.setDate(dateOut.getDate() + 1);
-    }
-
-    const diffMs = dateOut.getTime() - dateIn.getTime();
-    if (diffMs < 0) return 0;
-
-    const diffHours = diffMs / (1000 * 60 * 60);
-    return parseFloat(diffHours.toFixed(2));
-  } catch (error) {
-    return 0;
-  }
+// Throws a 400 when the pair of times can't be right.
+const assertValidTimes = (checkIn, checkOut) => {
+  const bad = (message) => { const e = new Error(message); e.statusCode = 400; throw e; };
+  if (checkIn === null) bad("Check-in time isn't a valid time");
+  if (checkOut === null) bad("Check-out time isn't a valid time");
+  if (checkOut && !checkIn) bad("Add a check-in time before the check-out time");
+  if (checkIn && checkOut && toMinutes(checkOut) <= toMinutes(checkIn)) bad("Check-out must be later than check-in");
 };
 
 const buildDateRangeForDay = (dateStr) => {
@@ -62,9 +31,11 @@ const buildDateRangeForDay = (dateStr) => {
   return { $gte: start, $lte: end };
 };
 
+// Whole calendar month. Dates are stored as UTC midnight of the IST day,
+// so UTC boundaries are exact whatever the server's timezone.
 const buildDateRangeForMonth = (month, year) => {
-  const start = new Date(year, month - 1, 1);
-  const end   = new Date(year, month, 0, 23, 59, 59);
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end   = new Date(Date.UTC(year, month, 1) - 1);
   return { $gte: start, $lte: end };
 };
 
@@ -99,4 +70,5 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c; // returns distance in meters
 };
 
-module.exports = { calculateDistance, calculateHours, buildDateRangeForDay, buildDateRangeForMonth, summariseRecords };
+module.exports = {
+  assertValidTimes, calculateDistance, calculateHours, buildDateRangeForDay, buildDateRangeForMonth, summariseRecords };

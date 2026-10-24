@@ -2,6 +2,8 @@
 
 const Employee = require("../models/Employee");
 const { NOT_DELETED } = require("../utils/employeeHelpers");
+const { buildDateRangeForDay } = require("../utils/attendanceHelpers");
+const { todayIST } = require("../utils/attendanceTime");
 const Attendance = require("../models/Attendance");
 const Payroll = require("../models/Payroll");
 const Performance = require("../models/Performance");
@@ -47,8 +49,9 @@ const getDashboardStats = async () => {
     { $sort: { count: -1 } },
   ]);
 
+  // Attendance days are stored as UTC midnight of the IST date
   const attendanceToday = await Attendance.aggregate([
-    { $match: { date: { $gte: today, $lt: tomorrow } } },
+    { $match: { date: buildDateRangeForDay(todayIST()) } },
     { $group: { _id: "$status", count: { $sum: 1 } } },
   ]);
   const attendanceSummary = createAttendanceSummary(attendanceToday);

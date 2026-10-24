@@ -42,7 +42,8 @@ const attendanceSchema = new mongoose.Schema(
 
         leaveType: {
             type: String,
-            enum: ["Sick Leave", "Casual Leave", "Paid Leave", "Unpaid Leave", ""],
+            // Same types as leave requests (+ "Paid Leave" kept for older records)
+            enum: ["Sick Leave", "Casual Leave", "Earned Leave", "Maternity Leave", "Special Leave", "Unpaid Leave", "Paid Leave", ""],
             default: "",
         },
 
@@ -61,6 +62,7 @@ const attendanceSchema = new mongoose.Schema(
                 type: Number,
                 default: null,
             },
+            accuracy: { type: Number, default: null }, // metres, as reported by the phone
         },
         checkOutLocation: {
             lat: {
@@ -71,6 +73,7 @@ const attendanceSchema = new mongoose.Schema(
                 type: Number,
                 default: null,
             },
+            accuracy: { type: Number, default: null },
         },
 
         // ─── Work Mode ────────────────────────────────────────────
@@ -80,13 +83,61 @@ const attendanceSchema = new mongoose.Schema(
             enum: ["Office", "WFH"],
             default: "Office",
         },
+
+        // ─── Trust & control ──────────────────────────────────────
+        // How the record came to exist
+        source: {
+            type: String,
+            enum: ["self", "admin", "leave", "system"],
+            default: "self",
+        },
+        // Checked in on a past day but never checked out
+        missedCheckOut: { type: Boolean, default: false },
+        checkoutReminderSentAt: { type: Date, default: null },
+
+        // Soft delete — hidden everywhere, kept for the record
+        isDeleted: { type: Boolean, default: false },
+        deletedAt: { type: Date, default: null },
+        deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+        deleteReason: { type: String, default: "" },
+
+        // Every manual / automatic change: who, when, why and what changed
+        history: [
+            {
+                _id: false,
+                at: { type: Date, default: Date.now },
+                by: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+                byName: { type: String, default: "" },
+                action: { type: String, default: "" }, // created | updated | deleted | restored | leave | missed-check-out
+                reason: { type: String, default: "" },
+                changes: [{ _id: false, field: String, from: String, to: String }],
+            },
+        ],
     },
     {
         timestamps: true, // auto adds createdAt and updatedAt
     }
 );
 
-attendanceSchema.index({ employee: 1, date: 1 }, { unique: true });
+// One live record per employee per day (deleted records don't count)
+attendanceSchema.index(
+    { employee: 1, date: 1 },
+    { unique: true, partialFilterExpression: { isDeleted: false }, name: "employee_date_live_unique" }
+);
+
+// Deleted records are hidden from every query unless { withDeleted: true } is set
+function hideDeleted() {
+    if (this.getOptions().withDeleted) return;
+    if (this.getQuery().isDeleted === undefined) this.where({ isDeleted: { $ne: true } });
+}
+attendanceSchema.pre(
+    ["find", "findOne", "countDocuments", "findOneAndUpdate", "updateOne", "updateMany", "deleteOne", "deleteMany"],
+    hideDeleted
+);
+attendanceSchema.pre("aggregate", function () {
+    if (this.options?.withDeleted) return;
+    this.pipeline().unshift({ $match: { isDeleted: { $ne: true } } });
+});
 
 const Attendance = mongoose.model("Attendance", attendanceSchema);
 

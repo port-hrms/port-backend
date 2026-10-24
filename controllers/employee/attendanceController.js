@@ -5,8 +5,8 @@ const { sendSuccess, sendError, sendBadRequest } = require("../../utils/response
 
 const checkIn = async (req, res) => {
   try {
-    const { latitude, longitude } = req.body || {};
-    const record = await attendanceEmployeeService.employeeCheckIn(req.user?._id, { latitude, longitude });
+    const { latitude, longitude, accuracy } = req.body || {};
+    const record = await attendanceEmployeeService.employeeCheckIn(req.user?._id, { latitude, longitude, accuracy });
     return sendSuccess(res, record, "Checked in successfully", 201);
   } catch (error) {
     if (error.statusCode === 400) {
@@ -18,8 +18,8 @@ const checkIn = async (req, res) => {
 
 const checkOut = async (req, res) => {
   try {
-    const { latitude, longitude } = req.body || {};
-    const record = await attendanceEmployeeService.employeeCheckOut(req.user?._id, { latitude, longitude });
+    const { latitude, longitude, accuracy } = req.body || {};
+    const record = await attendanceEmployeeService.employeeCheckOut(req.user?._id, { latitude, longitude, accuracy });
     return sendSuccess(res, record, "Checked out successfully");
   } catch (error) {
     if (error.statusCode === 400) {

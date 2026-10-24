@@ -6,7 +6,7 @@ const Leave = require("../../models/Leave");
 const CompanySetting = require("../../models/CompanySetting");
 const wfhService = require("../wfhService");
 const { calculateHours, buildDateRangeForDay, calculateDistance } = require("../../utils/attendanceHelpers");
-const { formatTime12, resolveCheckInStatus, HALF_DAY_HOURS } = require("../../utils/attendanceTime");
+const { formatTime12, resolveCheckInStatus, HALF_DAY_HOURS, todayIST, isWeeklyOff } = require("../../utils/attendanceTime");
 
 const getUserEmployee = async (userId) => {
   const user = await User.findById(userId).populate("employee");
@@ -25,11 +25,10 @@ const getUserEmployee = async (userId) => {
 
 const employeeCheckIn = async (userId, coords) => {
   const employee = await getUserEmployee(userId);
-  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-  const isSunday = new Date(`${todayStr}T12:00:00Z`).getUTCDay() === 0;
+  const todayStr = todayIST();
 
-  if (isSunday) {
-    const err = new Error("Check-in is disabled on Sundays (Mon-Sat only)");
+  if (isWeeklyOff(todayStr)) {
+    const err = new Error("Check-in is disabled on the weekly off day");
     err.statusCode = 400;
     throw err;
   }
@@ -97,9 +96,10 @@ const employeeCheckIn = async (userId, coords) => {
   const checkIn = formatTime12(new Date());
   const status = resolveCheckInStatus(checkIn);
 
+  const accuracyOf = (c) => (Number.isFinite(Number(c?.accuracy)) ? Math.round(Number(c.accuracy)) : null);
   const locationData = (coords?.latitude !== undefined && coords?.longitude !== undefined)
-    ? { lat: coords.latitude, lng: coords.longitude }
-    : { lat: null, lng: null };
+    ? { lat: coords.latitude, lng: coords.longitude, accuracy: accuracyOf(coords) }
+    : { lat: null, lng: null, accuracy: null };
 
   if (record) {
     record.checkIn = checkIn;
@@ -124,7 +124,7 @@ const employeeCheckIn = async (userId, coords) => {
 
 const employeeCheckOut = async (userId, coords) => {
   const employee = await getUserEmployee(userId);
-  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const todayStr = todayIST();
   const todayRange = buildDateRangeForDay(todayStr);
 
   const record = await Attendance.findOne({ employee: employee._id, date: todayRange });
@@ -183,7 +183,8 @@ const employeeCheckOut = async (userId, coords) => {
   record.checkOut = checkOut;
   record.hoursWorked = hoursWorked;
   if (coords?.latitude !== undefined && coords?.longitude !== undefined) {
-    record.checkOutLocation = { lat: coords.latitude, lng: coords.longitude };
+    const acc = Number(coords.accuracy);
+    record.checkOutLocation = { lat: coords.latitude, lng: coords.longitude, accuracy: Number.isFinite(acc) ? Math.round(acc) : null };
   }
 
   if (["Present", "Late", "Half Day"].includes(record.status)) {

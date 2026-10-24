@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const { seedCompanyDetails } = require("../seed/companySeeder");
+const { migrateAttendance } = require("../seed/attendanceMigration");
+const { startAttendanceJobs } = require("../services/attendance/attendanceJobs");
 
 const connectDB = async () => {
   try {
@@ -8,6 +10,8 @@ const connectDB = async () => {
 
     // Clean and simple auto-initialization seeder
     await seedCompanyDetails();
+    await migrateAttendance();
+    startAttendanceJobs();
   } catch (error) {
     console.error(`MongoDB Connection Error: ${error.message}`);
     console.error(`   Server is running but database is not connected.`);
